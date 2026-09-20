@@ -1,0 +1,104 @@
+name: Build B7 Telegram fork
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Write configuration with secrets
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          with open("build-system/appstore-configuration.json") as f:
+              cfg = json.load(f)
+          cfg["api_id"] = "${{ secrets.TG_API_ID }}"
+          cfg["api_hash"] = "${{ secrets.TG_API_HASH }}"
+          cfg["is_internal_build"] = "true"
+          cfg["is_appstore_build"] = "false"
+          cfg["appstore_id"] = "0"
+          cfg["enable_siri"] = False
+          cfg["enable_icloud"] = False
+          cfg["premium_iap_product_id"] = ""
+          with open("build-system/b7_build_configuration.json", "w") as f:
+              json.dump(cfg, f, indent=2)
+          PYEOF
+
+      - name: Set active Xcode path
+        run: |
+          XCODE_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["xcode"]);')
+          sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Create canonical source directory
+        run: |
+          set -x
+          sudo mkdir -p /Users/Shared
+          cp -R $GITHUB_WORKSPACE /Users/Shared/
+          mv /Users/Shared/$(basename $GITHUB_WORKSPACE) /Users/Shared/telegram-ios
+
+      - name: Build the App
+        run: |
+          set -x
+
+          SOURCE_DIR=/Users/Shared/telegram-ios
+          BAZEL_USER_ROOT="/private/var/tmp/_bazel_containerhost"
+
+          cd $SOURCE_DIR
+
+          BUILD_NUMBER_OFFSET="$(cat build_number_offset)"
+          export APP_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["app"]);')
+          export COMMIT_COUNT=$(git rev-list --count HEAD)
+          export COMMIT_COUNT="$(($COMMIT_COUNT+$BUILD_NUMBER_OFFSET))"
+          export BUILD_NUMBER="$COMMIT_COUNT"
+
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+          python3 -u build-system/Make/Make.py \
+            --bazelUserRoot="$BAZEL_USER_ROOT" \
+            --overrideXcodeVersion \
+            --overrideBazelVersion \
+            build \
+            --configurationPath="build-system/b7_build_configuration.json" \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber="$BUILD_NUMBER"
+
+          OUTPUT_PATH="$GITHUB_WORKSPACE/build/artifacts"
+          rm -rf "$OUTPUT_PATH"
+          mkdir -p "$OUTPUT_PATH"
+          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
+            cp "$f" "$OUTPUT_PATH"/
+          done
+
+      - name: Repackage with custom bundle id for TrollStore
+        run: |
+          set -x
+          cd "$GITHUB_WORKSPACE/build/artifacts"
+          mkdir extracted
+          cd extracted
+          unzip -q ../Telegram.ipa
+          python3 - <<'PYEOF'
+          import plistlib
+          path = "Payload/Telegram.app/Info.plist"
+          with open(path, "rb") as f:
+              data = plistlib.load(f)
+          data["CFBundleIdentifier"] = "com.b7.telegramfork"
+          with open(path, "wb") as f:
+              plistlib.dump(data, f)
+          PYEOF
+          zip -qr ../B7Telegram.ipa Payload
+          cd ..
+          rm -rf extracted Telegram.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: B7Telegram-ipa
+          path: build/artifacts/B7Telegram.ipa
