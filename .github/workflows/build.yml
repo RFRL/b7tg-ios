@@ -62,6 +62,13 @@ jobs:
           export BUILD_NUMBER="$COMMIT_COUNT"
 
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+          python3 build-system/Make/RewriteProfilesBundleId.py \
+            --profilesPath build-system/fake-codesigning/profiles \
+            --certsPath build-system/fake-codesigning/certs \
+            --keychainName temp.keychain \
+            --keychainPassword secret \
+            --oldBundleId ph.telegra.Telegraph \
+            --newBundleId com.b7.telegramfork
           python3 -u build-system/Make/Make.py \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
             --overrideXcodeVersion \
