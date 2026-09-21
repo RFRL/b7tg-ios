@@ -183,7 +183,14 @@ public final class SharedAccountContextImpl: SharedAccountContext, DuressAccount
             guard isDuressModeConfigured(), let primary = value.primary else {
                 return value
             }
-            let filteredAccounts = value.accounts.filter { $0.0 == primary.account.id }
+            // Only accounts that have their own duress code configured are ever hidden,
+            // and only while they aren't the current one. An account with no duress
+            // mapping of its own (the "cover" account) always stays visible, and an
+            // account being actively configured (still primary) stays reachable too —
+            // otherwise setting up the second account's code would permanently strand
+            // it outside the switcher with no way back in.
+            let hiddenAccountIds = Set(loadDuressMappings().map { $0.accountId })
+            let filteredAccounts = value.accounts.filter { $0.0 == primary.account.id || !hiddenAccountIds.contains($0.0.int64) }
             return (primary, filteredAccounts, value.currentAuth)
         }
     }
