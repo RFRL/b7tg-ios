@@ -20,8 +20,10 @@ jobs:
           import json
           with open("build-system/appstore-configuration.json") as f:
               cfg = json.load(f)
+          cfg["bundle_id"] = "com.b7.telegramfork"
           cfg["api_id"] = "${{ secrets.TG_API_ID }}"
           cfg["api_hash"] = "${{ secrets.TG_API_HASH }}"
+          cfg["team_id"] = "C67CF9S4VU"
           cfg["is_internal_build"] = "true"
           cfg["is_appstore_build"] = "false"
           cfg["appstore_id"] = "0"
@@ -73,27 +75,7 @@ jobs:
           OUTPUT_PATH="$GITHUB_WORKSPACE/build/artifacts"
           rm -rf "$OUTPUT_PATH"
           mkdir -p "$OUTPUT_PATH"
-          cp "$SOURCE_DIR/bazel-bin/Telegram/Telegram.ipa" "$OUTPUT_PATH"/
-
-      - name: Repackage with custom bundle id for TrollStore
-        run: |
-          set -x
-          cd "$GITHUB_WORKSPACE/build/artifacts"
-          mkdir extracted
-          cd extracted
-          unzip -q ../Telegram.ipa
-          python3 - <<'PYEOF'
-          import plistlib
-          path = "Payload/Telegram.app/Info.plist"
-          with open(path, "rb") as f:
-              data = plistlib.load(f)
-          data["CFBundleIdentifier"] = "com.b7.telegramfork"
-          with open(path, "wb") as f:
-              plistlib.dump(data, f)
-          PYEOF
-          zip -qr ../B7Telegram.ipa Payload
-          cd ..
-          rm -rf extracted Telegram.ipa
+          cp "$SOURCE_DIR/bazel-bin/Telegram/Telegram.ipa" "$OUTPUT_PATH/B7Telegram.ipa"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
