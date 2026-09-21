@@ -16,6 +16,21 @@ def run(args, input=None):
     return proc.stdout
 
 
+def run_pkcs12(base_args, input=None):
+    # Some openssl builds (LibreSSL on macOS's system /usr/bin/openssl) don't
+    # know -legacy; others (OpenSSL 3.x) need it to read older-style p12
+    # files. Try without it first, then fall back to adding it.
+    proc = subprocess.run(base_args, input=input, capture_output=True)
+    if proc.returncode == 0:
+        return proc.stdout
+    proc2 = subprocess.run(base_args + ['-legacy'], input=input, capture_output=True)
+    if proc2.returncode == 0:
+        return proc2.stdout
+    sys.stderr.write(proc.stderr.decode(errors='replace'))
+    sys.stderr.write(proc2.stderr.decode(errors='replace'))
+    raise SystemExit('Command failed: {}'.format(' '.join(base_args)))
+
+
 def deep_replace(value, old, new):
     if isinstance(value, str):
         return value.replace(old, new)
@@ -41,7 +56,7 @@ def main():
         print('{} does not exist'.format(p12_path))
         sys.exit(1)
 
-    cert_pem = run(['openssl', 'pkcs12', '-in', p12_path, '-passin', 'pass:', '-nokeys', '-legacy'])
+    cert_pem = run_pkcs12(['openssl', 'pkcs12', '-in', p12_path, '-passin', 'pass:', '-nokeys'])
     cert_der = run(['openssl', 'x509', '-outform', 'DER'], input=cert_pem)
     subject = run(['openssl', 'x509', '-noout', '-subject', '-nameopt', 'oneline,-esc_msb'], input=cert_pem).decode('utf-8')
     if 'CN = ' not in subject:
